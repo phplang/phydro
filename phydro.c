@@ -948,6 +948,204 @@ static PHP_FUNCTION(phydro_kx_xx_4) {
 } /* }}} */
 
 /*************************************************************************/
+/* PWHash */
+
+/* {{{ proto string phydro_pwhash_keygen() */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(pwhash_keygen_arginfo, ZEND_RETURN_VALUE, 0, IS_STRING, 1)
+ZEND_END_ARG_INFO();
+static PHP_FUNCTION(phydro_pwhash_keygen) {
+	uint8_t key[hydro_pwhash_MASTERKEYBYTES];
+	zend_parse_parameters_none();
+	hydro_pwhash_keygen(key);
+	RETURN_STRINGL(key, sizeof(key));
+} /* }}} */
+
+static zend_bool validate_pwvals(zend_long opsLimit, zend_long memLimit, zend_long threads) {
+	if (opsLimit < 0) {
+		php_error(E_RECOVERABLE_ERROR, "Invalid opsLimit: %ld", opsLimit);
+		return 0;
+	}
+	if (memLimit < 0) {
+		php_error(E_RECOVERABLE_ERROR, "Invalid memLimit: %ld", memLimit);
+		return 0;
+	}
+	if ((threads < 0) || (threads > 255)) {
+		php_error(E_RECOVERABLE_ERROR, "Invalid thread count: %ld", threads);
+		return 0;
+	}
+	return 1;
+}
+
+/* {{{ proto string phydro_pwhash_deterministic(int $len, string $password, string $context, string $masterKey, int $opsLimit, int $memlimit, int $threads) */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(pwhash_deterministic_arginfo, ZEND_RETURN_VALUE, 7, IS_STRING, 1)
+	ZEND_ARG_TYPE_INFO(0, len, IS_LONG, 0)
+	ZEND_ARG_TYPE_INFO(0, password, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, context, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, masterKey, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, opsLimit, IS_LONG, 0)
+	ZEND_ARG_TYPE_INFO(0, memLimit, IS_LONG, 0)
+	ZEND_ARG_TYPE_INFO(0, threads, IS_LONG, 0)
+ZEND_END_ARG_INFO();
+static PHP_FUNCTION(phydro_pwhash_deterministic) {
+	zend_long len, opsLimit, memLimit, threads;
+	zend_string *password, *context, *key, *ret;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "lSSSlll", &len, &password, &context, &key, &opsLimit, &memLimit, &threads) == FAILURE) { return; }
+	if (!validate(context, "Context", hydro_pwhash_CONTEXTBYTES) ||
+		!validate(key, "Master key", hydro_pwhash_MASTERKEYBYTES) ||
+		!validate_pwvals(opsLimit, memLimit, threads)) {
+		return;
+	}
+	if (len <= 0) {
+		php_error(E_RECOVERABLE_ERROR, "Invalid length: %ld", len);
+		return;
+	}
+	ret = zend_string_alloc(len, 0);
+	if (hydro_pwhash_deterministic(ZSTR_VAL(ret), ZSTR_LEN(ret), ZSTR_VAL(password), ZSTR_LEN(password),
+	                               ZSTR_VAL(context), ZSTR_VAL(key), (uint64_t)opsLimit, (size_t)memLimit, (uint8_t)threads)) {
+		php_error(E_RECOVERABLE_ERROR, "Failed creating deterministic password hash");
+		return;
+	}
+	ZSTR_VAL(ret)[ZSTR_LEN(ret)] = 0;
+	RETURN_NEW_STR(ret);
+} /* }}} */
+
+/* {{{ proto string phydro_pwhash_create(string $password, string $masterKey, int $opsLimit, int $memlimit, int $threads) */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(pwhash_create_arginfo, ZEND_RETURN_VALUE, 5, IS_STRING, 1)
+	ZEND_ARG_TYPE_INFO(0, password, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, masterKey, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, opsLimit, IS_LONG, 0)
+	ZEND_ARG_TYPE_INFO(0, memLimit, IS_LONG, 0)
+	ZEND_ARG_TYPE_INFO(0, threads, IS_LONG, 0)
+ZEND_END_ARG_INFO();
+static PHP_FUNCTION(phydro_pwhash_create) {
+	zend_string *password, *key;
+	zend_long opsLimit, memLimit, threads;
+	uint8_t stored[hydro_pwhash_STOREDBYTES];
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "SSlll", &password, &key, &opsLimit, &memLimit, &threads) == FAILURE) { return; }
+	if (!validate(key, "Master key", hydro_pwhash_MASTERKEYBYTES) ||
+		!validate_pwvals(opsLimit, memLimit, threads)) {
+		return;
+	}
+	if (hydro_pwhash_create(stored, ZSTR_VAL(password), ZSTR_LEN(password),
+	                        ZSTR_VAL(key), (uint64_t)opsLimit, (size_t)memLimit, (uint8_t)threads)) {
+		php_error(E_RECOVERABLE_ERROR, "Failed creating password hash");
+		return;
+	}
+	RETVAL_STRINGL(stored, sizeof(stored));
+	hydro_memzero(stored, sizeof(stored));
+} /* }}} */
+
+/* {{{ proto bool phydro_pwhash_verify(string $subkey, string $masterKey, int $opsLimit, int $memlimit, int $threads) */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(pwhash_verify_arginfo, ZEND_RETURN_VALUE, 6, _IS_BOOL, 1)
+	ZEND_ARG_TYPE_INFO(0, subkey, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, password, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, masterKey, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, opsLimit, IS_LONG, 0)
+	ZEND_ARG_TYPE_INFO(0, memLimit, IS_LONG, 0)
+	ZEND_ARG_TYPE_INFO(0, threads, IS_LONG, 0)
+ZEND_END_ARG_INFO();
+static PHP_FUNCTION(phydro_pwhash_verify) {
+	zend_string *subkey, *password, *key;
+	zend_long opsLimit, memLimit, threads;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "SSSlll", &subkey, &password, &key, &opsLimit, &memLimit, &threads) == FAILURE) { return; }
+	if (!validate(subkey, "Subkey", hydro_pwhash_STOREDBYTES) ||
+		!validate(key, "Master key", hydro_pwhash_MASTERKEYBYTES) ||
+		!validate_pwvals(opsLimit, memLimit, threads)) {
+		return;
+	}
+	RETURN_BOOL(0 == hydro_pwhash_verify(ZSTR_VAL(subkey), ZSTR_VAL(password), ZSTR_LEN(password),
+	                                     ZSTR_VAL(key), (uint64_t)opsLimit, (size_t)memLimit, (uint8_t)threads));
+} /* }}} */
+
+/* {{{ proto string phydro_pwhash_derive_static_key(int $len, string $subkey, string $password, string $context, string $masterKey, int $opsLimit, int $memlimit, int $threads) */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(pwhash_derive_static_key_arginfo, ZEND_RETURN_VALUE, 8, IS_STRING, 1)
+	ZEND_ARG_TYPE_INFO(0, len, IS_LONG, 0)
+	ZEND_ARG_TYPE_INFO(0, subkey, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, password, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, context, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, masterKey, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, opsLimit, IS_LONG, 0)
+	ZEND_ARG_TYPE_INFO(0, memLimit, IS_LONG, 0)
+	ZEND_ARG_TYPE_INFO(0, threads, IS_LONG, 0)
+ZEND_END_ARG_INFO();
+static PHP_FUNCTION(phydro_pwhash_derive_static_key) {
+	zend_long len, opsLimit, memLimit, threads;
+	zend_string *subkey, *password, *context, *key, *ret;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "lSSSSlll", &len, &subkey, &password, &context, &key, &opsLimit, &memLimit, &threads) == FAILURE) { return; }
+	if (!validate(subkey, "Subkey", hydro_pwhash_STOREDBYTES) ||
+		!validate(context, "Context", hydro_pwhash_CONTEXTBYTES) ||
+		!validate(key, "Master key", hydro_pwhash_MASTERKEYBYTES) ||
+		!validate_pwvals(opsLimit, memLimit, threads)) {
+		return;
+	}
+	if (len <= 0) {
+		php_error(E_RECOVERABLE_ERROR, "Invalid length: %ld", len);
+		return;
+	}
+	ret = zend_string_alloc(len, 0);
+	if (hydro_pwhash_derive_static_key(ZSTR_VAL(ret), ZSTR_LEN(ret), ZSTR_VAL(subkey), ZSTR_VAL(password), ZSTR_LEN(password),
+	                                   ZSTR_VAL(context), ZSTR_VAL(key), (uint64_t)opsLimit, (size_t)memLimit, (uint8_t)threads)) {
+		php_error(E_RECOVERABLE_ERROR, "Failed deriving static key");
+		return;
+	}
+	ZSTR_VAL(ret)[ZSTR_LEN(ret)] = 0;
+	RETURN_NEW_STR(ret);
+} /* }}} */
+
+/* {{{ proto string phydro_pwhash_reencrypt(string $subkey, string $oldmaster, string $newmaster) */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(pwhash_reencrypt_arginfo, ZEND_RETURN_VALUE, 3, IS_STRING, 1)
+	ZEND_ARG_TYPE_INFO(0, subkey, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, oldmaster, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, newmaster, IS_STRING, 0)
+ZEND_END_ARG_INFO();
+static PHP_FUNCTION(phydro_pwhash_reencrypt) {
+	zend_string *subkey, *oldkey, *newkey;
+	uint8_t       stored[hydro_pwhash_STOREDBYTES];
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "SSS", &subkey, &oldkey, &newkey) == FAILURE) { return; }
+	if (!validate(subkey, "Subkey", hydro_pwhash_STOREDBYTES) ||
+		!validate(oldkey, "Old master key", hydro_pwhash_MASTERKEYBYTES) ||
+		!validate(newkey, "New master key", hydro_pwhash_MASTERKEYBYTES)) {
+		return;
+	}
+	memcpy(stored, ZSTR_VAL(subkey), sizeof(stored));
+	if (hydro_pwhash_reencrypt(stored, ZSTR_VAL(oldkey), ZSTR_VAL(newkey))) {
+		hydro_memzero(stored, sizeof(stored));
+		php_error(E_RECOVERABLE_ERROR, "Unable to reencrypt key");
+		return;
+	}
+	RETVAL_STRINGL(stored, sizeof(stored));
+	hydro_memzero(stored, sizeof(stored));
+} /* }}} */
+
+/* {{{ proto string phydro_pwhash_upgrade(string $subkey, string $masterKey, int $opsLimit, int $memlimit, int $threads) */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(pwhash_upgrade_arginfo, ZEND_RETURN_VALUE, 5, IS_STRING, 1)
+	ZEND_ARG_TYPE_INFO(0, subkey, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, masterKey, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, opsLimit, IS_LONG, 0)
+	ZEND_ARG_TYPE_INFO(0, memLimit, IS_LONG, 0)
+	ZEND_ARG_TYPE_INFO(0, threads, IS_LONG, 0)
+ZEND_END_ARG_INFO();
+static PHP_FUNCTION(phydro_pwhash_upgrade) {
+	zend_string *subkey, *key;
+	zend_long opsLimit, memLimit, threads;
+	uint8_t       stored[hydro_pwhash_STOREDBYTES];
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "SSlll", &subkey, &key, &opsLimit, &memLimit, &threads) == FAILURE) { return; }
+	if (!validate(subkey, "Subkey", hydro_pwhash_STOREDBYTES) ||
+		!validate(key, "Master key", hydro_pwhash_MASTERKEYBYTES) ||
+		!validate_pwvals(opsLimit, memLimit, threads)) {
+		return;
+	}
+	memcpy(stored, ZSTR_VAL(subkey), sizeof(stored));
+	if (hydro_pwhash_upgrade(stored, ZSTR_VAL(key), (uint64_t)opsLimit, (size_t)memLimit, (uint8_t)threads)) {
+		hydro_memzero(stored, sizeof(stored));
+		php_error(E_RECOVERABLE_ERROR, "Unable to upgrade key");
+		return;
+	}
+	RETVAL_STRINGL(stored, sizeof(stored));
+	hydro_memzero(stored, sizeof(stored));
+} /* }}} */
+
+/*************************************************************************/
 /* Misc */
 
 /* {{{ proto bool phydro_equal(string $a, string $b) */
@@ -1049,6 +1247,14 @@ static zend_function_entry php_phydro_functions[] = {
 	PHP_FE(phydro_kx_xx_3, xx3_arginfo)
 	PHP_FE(phydro_kx_xx_4, xx4_arginfo)
 
+	PHP_FE(phydro_pwhash_keygen, pwhash_keygen_arginfo)
+	PHP_FE(phydro_pwhash_deterministic, pwhash_deterministic_arginfo)
+	PHP_FE(phydro_pwhash_create, pwhash_create_arginfo)
+	PHP_FE(phydro_pwhash_verify, pwhash_verify_arginfo)
+	PHP_FE(phydro_pwhash_derive_static_key, pwhash_derive_static_key_arginfo)
+	PHP_FE(phydro_pwhash_reencrypt, pwhash_reencrypt_arginfo)
+	PHP_FE(phydro_pwhash_upgrade, pwhash_upgrade_arginfo)
+
 	PHP_FE(phydro_equal, equal_arginfo)
 	PHP_FE(phydro_bin2hex, bin2hex_arginfo)
 	PHP_FE(phydro_hex2bin, hex2bin_arginfo)
@@ -1060,6 +1266,13 @@ PHP_MINIT_FUNCTION(phydro) {
 	hydro_init();
 	REGISTER_LONG_CONSTANT("PHYDRO_VERSION_MAJOR", HYDRO_VERSION_MAJOR, CONST_CS | CONST_PERSISTENT);
 	REGISTER_LONG_CONSTANT("PHYDRO_VERSION_MINOR", HYDRO_VERSION_MINOR, CONST_CS | CONST_PERSISTENT);
+
+#ifdef HYDRO_HWTYPE
+	REGISTER_LONG_CONSTANT("PHYDRO_HWTYPE", HYDRO_HWTYPE, CONST_CS | CONST_PERSISTENT);
+#else
+	REGISTER_NULL_CONSTANT("PHYDRO_HWTYPE", CONST_CS | CONST_PERSISTENT);
+#endif
+	REGISTER_LONG_CONSTANT("PHYDRO_HWTYPE_ATMEGA328", HYDRO_HWTYPE_ATMEGA328, CONST_CS | CONST_PERSISTENT);
 
 	REGISTER_LONG_CONSTANT("PHYDRO_RANDOM_SEEDBYTES", hydro_random_SEEDBYTES, CONST_CS | CONST_PERSISTENT);
 
@@ -1097,6 +1310,10 @@ PHP_MINIT_FUNCTION(phydro) {
 	REGISTER_LONG_CONSTANT("PHYDRO_KX_XX_PACKET1BYTES", hydro_kx_XX_PACKET1BYTES, CONST_CS | CONST_PERSISTENT);
 	REGISTER_LONG_CONSTANT("PHYDRO_KX_XX_PACKET2BYTES", hydro_kx_XX_PACKET2BYTES, CONST_CS | CONST_PERSISTENT);
 	REGISTER_LONG_CONSTANT("PHYDRO_KX_XX_PACKET3BYTES", hydro_kx_XX_PACKET3BYTES, CONST_CS | CONST_PERSISTENT);
+
+	REGISTER_LONG_CONSTANT("PHYDRO_PWHASH_CONTEXTBYTES", hydro_pwhash_CONTEXTBYTES, CONST_CS | CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("PHYDRO_PWHASH_MASTERKEYBYTES", hydro_pwhash_MASTERKEYBYTES, CONST_CS | CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("PHYDRO_PWHASH_STOREDBYTES", hydro_pwhash_STOREDBYTES, CONST_CS | CONST_PERSISTENT);
 
 	return ((1 == 1)
 			&& (PHP_MINIT(phydro_hash)(INIT_FUNC_ARGS_PASSTHRU) == SUCCESS)

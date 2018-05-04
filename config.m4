@@ -34,6 +34,6 @@ if test "$PHP_PHYDRO" != "no"; then
     AC_MSG_ERROR(not found)
   fi
 
-  PHP_NEW_EXTENSION(phydro, $HYDROGEN_SOURCE phydro.c phydro-hash.c phydro-kx.c, $ext_shared)
+  PHP_NEW_EXTENSION(phydro, $HYDROGEN_SOURCE phydro.c phydro-hash.c phydro-kx.c phydro-sign.c, $ext_shared)
   PHP_SUBST(PHYDRO_SHARED_LIBADD)
 fi

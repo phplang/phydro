@@ -14,3 +14,9 @@ PHP_MINIT_FUNCTION(phydro_kx);
 extern zend_class_entry *phydro_kx_ce;
 hydro_kx_state* phydro_kx_get_state(zend_object* zobj);
 zend_object* phydro_kx_state_init(hydro_kx_state* state);
+
+PHP_MINIT_FUNCTION(phydro_sign);
+extern zend_class_entry *phydro_sign_ce;
+hydro_sign_state* phydro_sign_get_state(zend_object* zobj);
+zend_object* phydro_sign_init(zend_string *context);
+

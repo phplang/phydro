@@ -153,7 +153,7 @@ static PHP_FUNCTION(phydro_hash_update) {
 	RETURN_TRUE;
 } /* }}} */
 
-/* {{{ proto bool phydro_hash_final(PhydroHash $hash, int $len) */
+/* {{{ proto string phydro_hash_final(PhydroHash $hash, int $len) */
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(hash_final_arginfo, ZEND_RETURN_VALUE, 2, IS_STRING, 1)
 	ZEND_ARG_OBJ_INFO(0, hash, PhydroHash, 0)
 	ZEND_ARG_TYPE_INFO(0, len, IS_LONG, 0)
@@ -375,6 +375,162 @@ static PHP_FUNCTION(phydro_kdf_derive_from_key) {
 	ZSTR_VAL(ret)[len] = 0;
 	ZSTR_LEN(ret) = len;
 	RETURN_NEW_STR(ret);
+} /* }}} */
+
+/*************************************************************************/
+/* Signing */
+
+/* {{{ proto array phydro_sign_keygen([?string $seed = null])
+ * Return array:
+ * 'pubkey' => $pk
+ * 'seckey' => $sk
+ */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(sign_keygen_arginfo, ZEND_RETURN_VALUE, 0, IS_ARRAY, 1)
+	ZEND_ARG_TYPE_INFO(0, seed, IS_STRING, 1)
+ZEND_END_ARG_INFO();
+static PHP_FUNCTION(phydro_sign_keygen) {
+	zend_string *seed = NULL;
+	hydro_sign_keypair kp;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S!", &seed) == FAILURE) { return; }
+	if (seed) {
+		if (!validate(seed, "Seed", hydro_sign_SEEDBYTES)) { return; }
+		hydro_sign_keygen_deterministic(&kp, ZSTR_VAL(seed));
+	} else {
+		hydro_sign_keygen(&kp);
+	}
+	array_init(return_value);
+	add_assoc_stringl(return_value, "pubkey", kp.pk, sizeof(kp.pk));
+	add_assoc_stringl(return_value, "seckey", kp.sk, sizeof(kp.sk));
+	hydro_memzero(&kp, sizeof(kp));
+} /* }}} */
+
+/* {{{ proto PhydroSignState phydro_sign_init(string $context) */
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(sign_init_arginfo, ZEND_RETURN_VALUE, 1, PhydroSignState, 1)
+	ZEND_ARG_TYPE_INFO(0, context, IS_STRING, 0)
+ZEND_END_ARG_INFO();
+static PHP_FUNCTION(phydro_sign_init) {
+	zend_string *context;
+	zend_object *ret;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &context) == FAILURE) { return; }
+	if (!validate(context, "Context", hydro_hash_CONTEXTBYTES)) { return; }
+	ret = phydro_sign_init(context);
+	if (!ret) {
+		php_error(E_RECOVERABLE_ERROR, "Failure initializing signing context");
+		return;
+	}
+	RETURN_OBJ(ret);
+} /* }}} */
+
+/* {{{ proto bool phydro_sign_update(PhydroSignState $sign, string $data) */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(sign_update_arginfo, ZEND_RETURN_VALUE, 2, _IS_BOOL, 1)
+	ZEND_ARG_OBJ_INFO(0, sign, PhydroSignState, 0)
+	ZEND_ARG_TYPE_INFO(0, data, IS_STRING, 0)
+ZEND_END_ARG_INFO();
+static PHP_FUNCTION(phydro_sign_update) {
+	zval *sign;
+	zend_string *data;
+	hydro_sign_state* state;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "OS", &sign, phydro_sign_ce, &data) == FAILURE) { return; }
+	state = phydro_sign_get_state(Z_OBJ_P(sign));
+	if (!state) {
+		php_error(E_RECOVERABLE_ERROR, "Error getting state from PhydroSignState object");
+		RETURN_FALSE;
+	}
+	if (hydro_sign_update(state, ZSTR_VAL(data), ZSTR_LEN(data))) {
+		php_error(E_RECOVERABLE_ERROR, "Failure updating signature");
+		RETURN_FALSE;
+	}
+	RETURN_TRUE;
+} /* }}} */
+
+/* {{{ proto string phydro_sign_final_create(PhydroSignState $sign, string $seckey) */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(sign_final_create_arginfo, ZEND_RETURN_VALUE, 2, IS_STRING, 1)
+	ZEND_ARG_OBJ_INFO(0, sign, PhydroSignState, 0)
+	ZEND_ARG_TYPE_INFO(0, seckey, IS_STRING, 0)
+ZEND_END_ARG_INFO();
+static PHP_FUNCTION(phydro_sign_final_create) {
+	zval *sign;
+	hydro_sign_state* state;
+	zend_string *ret, *seckey;
+	uint8_t csig[hydro_sign_BYTES];
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "OS", &sign, phydro_sign_ce, &seckey) == FAILURE) { return; }
+	if (!validate(seckey, "Secret key", hydro_sign_SECRETKEYBYTES)) { return; }
+	state = phydro_sign_get_state(Z_OBJ_P(sign));
+	if (!state) {
+		php_error(E_RECOVERABLE_ERROR, "Error getting state from PhydroSignState object");
+		return;
+	}
+	if (hydro_sign_final_create(state, csig, ZSTR_VAL(seckey))) {
+		php_error(E_RECOVERABLE_ERROR, "Error signing message");
+		return;
+	}
+	RETVAL_STRINGL(csig, sizeof(csig));
+	hydro_memzero(csig, sizeof(csig));
+} /* }}} */
+
+/* {{{ proto bool phydro_sign_final_verify(PhydroSignState $sign, string $signature, string $pubkey) */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(sign_final_verify_arginfo, ZEND_RETURN_VALUE, 3, _IS_BOOL, 1)
+	ZEND_ARG_OBJ_INFO(0, sign, PhydroSignState, 0)
+	ZEND_ARG_TYPE_INFO(0, signature, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, pubkey, IS_STRING, 0)
+ZEND_END_ARG_INFO();
+static PHP_FUNCTION(phydro_sign_final_verify) {
+	zval *sign;
+	hydro_sign_state* state;
+	zend_string *sig, *pubkey;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "OSS", &sign, phydro_sign_ce, &sig, &pubkey) == FAILURE) { return; }
+	if (!validate(sig, "Signature", hydro_sign_BYTES) ||
+		!validate(pubkey, "Public key", hydro_sign_PUBLICKEYBYTES)) {
+		return;
+	}
+	state = phydro_sign_get_state(Z_OBJ_P(sign));
+	if (!state) {
+		php_error(E_RECOVERABLE_ERROR, "Error getting state from PhydroSignState object");
+		return;
+	}
+	RETURN_BOOL(0 == hydro_sign_final_verify(state, ZSTR_VAL(sig), ZSTR_VAL(pubkey)));
+} /* }}} */
+
+/* {{{ proto string phydro_sign_create(string $message, string $context, string $seckey) */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(sign_create_arginfo, ZEND_RETURN_VALUE, 3, IS_STRING, 1)
+	ZEND_ARG_TYPE_INFO(0, message, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, context, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, seckey, IS_STRING, 0)
+ZEND_END_ARG_INFO();
+static PHP_FUNCTION(phydro_sign_create) {
+	zend_string *message, *context, *seckey;
+	uint8_t csig[hydro_sign_BYTES];
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "SSS", &message, &context, &seckey) == FAILURE) { return; }
+	if (!validate(context, "Context", hydro_sign_CONTEXTBYTES) ||
+		!validate(seckey, "Secret key", hydro_sign_SECRETKEYBYTES)) {
+		return;
+	}
+	if (hydro_sign_create(csig, ZSTR_VAL(message), ZSTR_LEN(message), ZSTR_VAL(context), ZSTR_VAL(seckey))) {
+		php_error(E_RECOVERABLE_ERROR, "Failed creating signature");
+		return;
+	}
+	RETURN_STRINGL(csig, sizeof(csig));
+} /* }}} */
+
+/* {{{ proto bool phydro_sign_verify(string $message, string $signature, string $context, string $publickey) */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(sign_verify_arginfo, ZEND_RETURN_VALUE, 4, _IS_BOOL, 1)
+	ZEND_ARG_TYPE_INFO(0, message, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, signature, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, context, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, pubkey, IS_STRING, 0)
+ZEND_END_ARG_INFO();
+static PHP_FUNCTION(phydro_sign_verify) {
+	zend_string *message, *signature, *context, *pubkey;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "SSSS", &message, &signature, &context, &pubkey) == FAILURE) { return; }
+	if (!validate(signature, "Signature", hydro_sign_BYTES) ||
+		!validate(context, "Context", hydro_sign_CONTEXTBYTES) ||
+		!validate(pubkey, "Public key", hydro_sign_PUBLICKEYBYTES)) {
+		return;
+	}
+	RETURN_BOOL(0 == hydro_sign_verify(ZSTR_VAL(signature), ZSTR_VAL(message), ZSTR_LEN(message), ZSTR_VAL(context), ZSTR_VAL(pubkey)));
 } /* }}} */
 
 /*************************************************************************/
@@ -874,13 +1030,20 @@ static zend_function_entry php_phydro_functions[] = {
 	PHP_FE(phydro_kdf_keygen, kdf_keygen_arginfo)
 	PHP_FE(phydro_kdf_derive_from_key, kdf_derive_from_key_arginfo)
 
+	PHP_FE(phydro_sign_keygen, sign_keygen_arginfo)
+	PHP_FE(phydro_sign_init, sign_init_arginfo)
+	PHP_FE(phydro_sign_update, sign_update_arginfo)
+	PHP_FE(phydro_sign_final_create, sign_final_create_arginfo)
+	PHP_FE(phydro_sign_final_verify, sign_final_verify_arginfo)
+	PHP_FE(phydro_sign_create, sign_create_arginfo)
+	PHP_FE(phydro_sign_verify, sign_verify_arginfo)
+
 	PHP_FE(phydro_kx_keygen, kx_keygen_arginfo)
 	PHP_FE(phydro_kx_n_1, n1_arginfo)
 	PHP_FE(phydro_kx_n_2, n2_arginfo)
 	PHP_FE(phydro_kx_kk_1, kk1_arginfo)
 	PHP_FE(phydro_kx_kk_2, kk2_arginfo)
 	PHP_FE(phydro_kx_kk_3, kk3_arginfo)
-
 	PHP_FE(phydro_kx_xx_1, xx1_arginfo)
 	PHP_FE(phydro_kx_xx_2, xx2_arginfo)
 	PHP_FE(phydro_kx_xx_3, xx3_arginfo)
@@ -916,6 +1079,12 @@ PHP_MINIT_FUNCTION(phydro) {
 	REGISTER_LONG_CONSTANT("PHYDRO_KDF_CONTEXTBYTES", hydro_kdf_CONTEXTBYTES, CONST_CS | CONST_PERSISTENT);
 	REGISTER_LONG_CONSTANT("PHYDRO_KDF_KEYBYTES", hydro_kdf_KEYBYTES, CONST_CS | CONST_PERSISTENT);
 
+	REGISTER_LONG_CONSTANT("PHYDRO_SIGN_BYTES", hydro_sign_BYTES, CONST_CS | CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("PHYDRO_SIGN_CONTEXTBYTES", hydro_sign_CONTEXTBYTES, CONST_CS | CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("PHYDRO_SIGN_PUBLICKEYBYTES", hydro_sign_PUBLICKEYBYTES, CONST_CS | CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("PHYDRO_SIGN_SECRETKEYBYTES", hydro_sign_SECRETKEYBYTES, CONST_CS | CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("PHYDRO_SIGN_SEEDBYTES", hydro_sign_SEEDBYTES, CONST_CS | CONST_PERSISTENT);
+
 	REGISTER_LONG_CONSTANT("PHYDRO_KX_SESSIONKEYBYTES", hydro_kx_SESSIONKEYBYTES, CONST_CS | CONST_PERSISTENT);
 	REGISTER_LONG_CONSTANT("PHYDRO_KX_PUBLICKEYBYTES", hydro_kx_PUBLICKEYBYTES, CONST_CS | CONST_PERSISTENT);
 	REGISTER_LONG_CONSTANT("PHYDRO_KX_SECRETKEYBYTES", hydro_kx_SECRETKEYBYTES, CONST_CS | CONST_PERSISTENT);
@@ -932,6 +1101,7 @@ PHP_MINIT_FUNCTION(phydro) {
 	return ((1 == 1)
 			&& (PHP_MINIT(phydro_hash)(INIT_FUNC_ARGS_PASSTHRU) == SUCCESS)
 			&& (PHP_MINIT(phydro_kx)(INIT_FUNC_ARGS_PASSTHRU) == SUCCESS)
+			&& (PHP_MINIT(phydro_sign)(INIT_FUNC_ARGS_PASSTHRU) == SUCCESS)
 			) ? SUCCESS : FAILURE;
 } /* }}} */
 

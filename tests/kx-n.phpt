@@ -7,10 +7,10 @@ phydro key exchange N protocol
 
 $seed = str_repeat('a', PHYDRO_KX_SEEDBYTES);
 $psk = str_repeat('b', PHYDRO_KX_PSKBYTES);
-[ $pk, $sk ] = phydro_kx_keygen($seed);
-[ $packet, [ $tx, $rx ] ] = phydro_kx_n_1($psk, $pk);
+[ 'pubkey' => $pk, 'seckey' => $sk ] = phydro_kx_keygen($seed);
+[ 'packet' => $packet, 'keys' => [ 'tx' => $tx, 'rx' => $rx ] ] = phydro_kx_n_1($psk, $pk);
 
-[ $tx2, $rx2 ] = phydro_kx_n_2($packet, $psk, $pk, $sk);
+[ 'tx' => $tx2, 'rx' => $rx2 ] = phydro_kx_n_2($packet, $psk, $pk, $sk);
 var_dump($tx == $rx2);
 var_dump($rx == $tx2);
 --EXPECT--

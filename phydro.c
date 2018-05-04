@@ -382,8 +382,8 @@ static PHP_FUNCTION(phydro_kdf_derive_from_key) {
 
 /* {{{ proto array phydro_kx_keygen([?string $seed = null])
  * Return array:
- * 0 => $pk
- * 1 => $sk
+ * 'pubkey' => $pk
+ * 'seckey' => $sk
  */
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(kx_keygen_arginfo, ZEND_RETURN_VALUE, 0, IS_ARRAY, 1)
 	ZEND_ARG_TYPE_INFO(0, seed, IS_STRING, 1)
@@ -399,15 +399,15 @@ static PHP_FUNCTION(phydro_kx_keygen) {
 		hydro_kx_keygen(&kp);
 	}
 	array_init(return_value);
-	add_index_stringl(return_value, 0, kp.pk, sizeof(kp.pk));
-	add_index_stringl(return_value, 1, kp.sk, sizeof(kp.sk));
+	add_assoc_stringl(return_value, "pubkey", kp.pk, sizeof(kp.pk));
+	add_assoc_stringl(return_value, "seckey", kp.sk, sizeof(kp.sk));
 	hydro_memzero(&kp, sizeof(kp));
 } /* }}} */
 
 /* {{{ proto array phydro_kx_n_1(string $psk, string $publicKey)
  * Return array:
- * 0 => $packetData
- * 1 => [ 0 => $tx, 1 => $rx ]
+ * 'packet' => $packet1
+ * 'keys' => [ 'tx' => $tx, 'rx' => $rx ]
  */
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(n1_arginfo, ZEND_RETURN_VALUE, 2, IS_ARRAY, 1)
 	ZEND_ARG_TYPE_INFO(0, psk, IS_STRING, 0)
@@ -429,12 +429,12 @@ static PHP_FUNCTION(phydro_kx_n_1) {
 		return;
 	}
 	array_init(return_value);
-	add_index_stringl(return_value, 0, packet, sizeof(packet));
+	add_assoc_stringl(return_value, "packet", packet, sizeof(packet));
 
 	array_init(&zskp);
-	add_index_stringl(&zskp, 0, skp.tx, sizeof(skp.tx));
-	add_index_stringl(&zskp, 1, skp.rx, sizeof(skp.rx));
-	add_index_zval(return_value, 1, &zskp);
+	add_assoc_stringl(&zskp, "tx", skp.tx, sizeof(skp.tx));
+	add_assoc_stringl(&zskp, "rx", skp.rx, sizeof(skp.rx));
+	add_assoc_zval(return_value, "keys", &zskp);
 
 	hydro_memzero(packet, sizeof(packet));
 	hydro_memzero(&skp, sizeof(skp));
@@ -442,8 +442,8 @@ static PHP_FUNCTION(phydro_kx_n_1) {
 
 /* {{{ proto array phydro_kx_n_2(string $packet_1, string $psk, string $publicKey, string $secretKey)
  * Return array:
- * 0 => $tx
- * 1 => $rx
+ * 'tx' => $tx
+ * 'rx' => $rx
  */
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(n2_arginfo, ZEND_RETURN_VALUE, 4, IS_ARRAY, 1)
 	ZEND_ARG_TYPE_INFO(0, packet1, IS_STRING, 0)
@@ -472,16 +472,16 @@ static PHP_FUNCTION(phydro_kx_n_2) {
 	}
 	hydro_memzero(&kp, sizeof(kp));
 	array_init(return_value);
-	add_index_stringl(return_value, 0, skp.tx, sizeof(skp.tx));
-	add_index_stringl(return_value, 1, skp.rx, sizeof(skp.rx));
+	add_assoc_stringl(return_value, "tx", skp.tx, sizeof(skp.tx));
+	add_assoc_stringl(return_value, "rx", skp.rx, sizeof(skp.rx));
 
 	hydro_memzero(&skp, sizeof(skp));
 } /* }}} */
 
 /* {{{ proto array phydro_kx_kk_1(string $peerPublicKey, string $publicKey, string $secretKey)
  * Return array:
- * 0 => $packet1
- * 1 => $state
+ * 'packet' => $packet1
+ * 'state' => $state
  */
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(kk1_arginfo, ZEND_RETURN_VALUE, 3, IS_ARRAY, 1)
 	ZEND_ARG_TYPE_INFO(0, peerPublicKey, IS_STRING, 0)
@@ -521,16 +521,16 @@ static PHP_FUNCTION(phydro_kx_kk_1) {
 	ZVAL_OBJ(&zstate, state_obj);
 
 	array_init(return_value);
-	add_index_stringl(return_value, 0, packet, sizeof(packet));
-	add_index_zval(return_value, 1, &zstate);
+	add_assoc_stringl(return_value, "packet", packet, sizeof(packet));
+	add_assoc_zval(return_value, "state", &zstate);
 
 	hydro_memzero(packet, sizeof(packet));
 } /* }}} */
 
 /* {{{ proto array phydro_kx_kk_2(string $packet1, string $peerPublicKey, string $publicKey, string $secretKey)
  * Return array:
- * 0 => $packet2
- * 1 => [ 0 => $tx, 1 => $rx ]
+ * 'packet' => $packet2
+ * 'keys' => [ 'tx' => $tx, 'rx' => $rx ]
  */
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(kk2_arginfo, ZEND_RETURN_VALUE, 4, IS_ARRAY, 1)
 	ZEND_ARG_TYPE_INFO(0, packet1, IS_STRING, 0)
@@ -563,21 +563,21 @@ static PHP_FUNCTION(phydro_kx_kk_2) {
 	hydro_memzero(&kp, sizeof(kp));
 
 	array_init(return_value);
-	add_index_stringl(return_value, 0, packet2, sizeof(packet2));
+	add_assoc_stringl(return_value, "packet", packet2, sizeof(packet2));
 	hydro_memzero(packet2, sizeof(packet2));
 
 	array_init(&zskp);
-	add_index_stringl(&zskp, 0, skp.tx, sizeof(skp.tx));
-	add_index_stringl(&zskp, 1, skp.rx, sizeof(skp.rx));
-	add_index_zval(return_value, 1, &zskp);
+	add_assoc_stringl(&zskp, "tx", skp.tx, sizeof(skp.tx));
+	add_assoc_stringl(&zskp, "rx", skp.rx, sizeof(skp.rx));
+	add_assoc_zval(return_value, "keys", &zskp);
 
 	hydro_memzero(&skp, sizeof(skp));
 } /* }}} */
 
 /* {{{ proto array phydro_kx_kk_3(PhydroKXState $state, string $packet2, string $peerPublicKey)
  * Return array:
- * 0 => $tx
- * 1 => $rx
+ * "tx" => $tx
+ * "rx" => $rx
  */
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(kk3_arginfo, ZEND_RETURN_VALUE, 3, IS_ARRAY, 1)
 	ZEND_ARG_OBJ_INFO(0, state, PhydroKXState, 0)
@@ -602,15 +602,15 @@ static PHP_FUNCTION(phydro_kx_kk_3) {
 	}
 
 	array_init(return_value);
-	add_index_stringl(return_value, 0, skp.tx, sizeof(skp.tx));
-	add_index_stringl(return_value, 1, skp.rx, sizeof(skp.rx));
+	add_assoc_stringl(return_value, "tx", skp.tx, sizeof(skp.tx));
+	add_assoc_stringl(return_value, "rx", skp.rx, sizeof(skp.rx));
 	hydro_memzero(&skp, sizeof(skp));
 } /* }}} */
 
 /* {{{ proto array phydro_kx_xx_1(string $psk)
  * Return array:
- * 0 => $packet1
- * 1 => $state
+ * 'packet' => $packet1
+ * 'state' => $state
  */
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(xx1_arginfo, ZEND_RETURN_VALUE, 1, IS_ARRAY, 1)
 	ZEND_ARG_TYPE_INFO(0, psk, IS_STRING, 0)
@@ -640,16 +640,16 @@ static PHP_FUNCTION(phydro_kx_xx_1) {
 	ZVAL_OBJ(&zstate, state_obj);
 
 	array_init(return_value);
-	add_index_stringl(return_value, 0, packet1, sizeof(packet1));
-	add_index_zval(return_value, 1, &zstate);
+	add_assoc_stringl(return_value, "packet", packet1, sizeof(packet1));
+	add_assoc_zval(return_value, "state", &zstate);
 
 	hydro_memzero(packet1, sizeof(packet1));
 } /* }}} */
 
 /* {{{ proto array phydro_kx_xx_2(string $packet1, string $psk, string $pubkey, string $seckey)
  * Return array:
- * 0 => $packet3
- * 1 => $state
+ * 'packet' => $packet3
+ * 'state' => $state
  */
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(xx2_arginfo, ZEND_RETURN_VALUE, 4, IS_ARRAY, 1)
 	ZEND_ARG_TYPE_INFO(0, packet1, IS_STRING, 0)
@@ -690,17 +690,17 @@ static PHP_FUNCTION(phydro_kx_xx_2) {
 	ZVAL_OBJ(&zstate, state_obj);
 
 	array_init(return_value);
-	add_index_stringl(return_value, 0, packet2, sizeof(packet2));
-	add_index_zval(return_value, 1, &zstate);
+	add_assoc_stringl(return_value, "packet", packet2, sizeof(packet2));
+	add_assoc_zval(return_value, "state", &zstate);
 
 	hydro_memzero(packet2, sizeof(packet2));
 } /* }}} */
 
 /* {{{ proto array phydro_kx_xx_3(PhydroKXState $state, string $packet2, string $psk, string $pubkey, string $seckey)
  * Return array:
- * 0 => $packet3
- * 1 => [ 0 => $tx, 1 => $rx ]
- * 2 => $peerPublicKey
+ * 'packet' => $packet3
+ * 'keys' => [ 'tx' => $tx, 'rx' => $rx ]
+ * 'peer' => $peerPublicKey
  */
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(xx3_arginfo, ZEND_RETURN_VALUE, 5, IS_ARRAY, 1)
 	ZEND_ARG_OBJ_INFO(0, state, PhydroKXState, 0)
@@ -737,14 +737,14 @@ static PHP_FUNCTION(phydro_kx_xx_3) {
 	hydro_memzero(&kp, sizeof(kp));
 
 	array_init(return_value);
-	add_index_stringl(return_value, 0, packet3, sizeof(packet3));
+	add_assoc_stringl(return_value, "packet", packet3, sizeof(packet3));
 
 	array_init(&zskp);
-	add_index_stringl(&zskp, 0, skp.tx, sizeof(skp.tx));
-	add_index_stringl(&zskp, 1, skp.rx, sizeof(skp.rx));
-	add_index_zval(return_value, 1, &zskp);
+	add_assoc_stringl(&zskp, "tx", skp.tx, sizeof(skp.tx));
+	add_assoc_stringl(&zskp, "rx", skp.rx, sizeof(skp.rx));
+	add_assoc_zval(return_value, "keys", &zskp);
 
-	add_index_stringl(return_value, 2, peer, sizeof(peer));
+	add_assoc_stringl(return_value, "peer", peer, sizeof(peer));
 
 	hydro_memzero(packet3, sizeof(packet3));
 	hydro_memzero(&skp, sizeof(skp));
@@ -752,8 +752,8 @@ static PHP_FUNCTION(phydro_kx_xx_3) {
 
 /* {{{ proto array phydro_kx_xx_4(PhydroKXState $state, string $packet3, string $psk)
  * Return array:
- * 0 => [ 0 => $tx, 1 => $rx ]
- * 1 => $peerPublicKey
+ * 'keys' => [ 'tx' => $tx, 'rx' => $rx ]
+ * 'peer' => $peerPublicKey
  */
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(xx4_arginfo, ZEND_RETURN_VALUE, 3, IS_ARRAY, 1)
 	ZEND_ARG_OBJ_INFO(0, state, PhydroKXState, 0)
@@ -782,11 +782,11 @@ static PHP_FUNCTION(phydro_kx_xx_4) {
 	array_init(return_value);
 
 	array_init(&zskp);
-	add_index_stringl(&zskp, 0, skp.tx, sizeof(skp.tx));
-	add_index_stringl(&zskp, 1, skp.rx, sizeof(skp.rx));
-	add_index_zval(return_value, 0, &zskp);
+	add_assoc_stringl(&zskp, "tx", skp.tx, sizeof(skp.tx));
+	add_assoc_stringl(&zskp, "rx", skp.rx, sizeof(skp.rx));
+	add_assoc_zval(return_value, "keys", &zskp);
 
-	add_index_stringl(return_value, 1, peer, sizeof(peer));
+	add_assoc_stringl(return_value, "peer", peer, sizeof(peer));
 
 	hydro_memzero(&skp, sizeof(skp));
 } /* }}} */
